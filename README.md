@@ -29,8 +29,11 @@ Insert placeholders where the runner should inject values:
 
 - `%%PROMPT%%` — user prompt
 - `%%STYLE%%` — style column (empty string when null)
+- `%%STYLE_SUFFIX%%` — `", <style>"`, or empty when null — use `%%PROMPT%%%%STYLE_SUFFIX%%` to avoid a dangling comma
 - `%%SEED%%` — random seed; a string that is exactly `%%SEED%%` becomes a number
 - `%%REF_1%%` / `%%REF_2%%` / `%%REF_3%%` — filenames of reference images uploaded to ComfyUI's input dir (wire into `LoadImage` nodes)
+
+Rows with fewer refs than the workflow has slots are handled automatically: LoadImage-style nodes whose ref resolved to an empty string are pruned from the graph, along with downstream nodes that require them (optional inputs are just dropped). One edit workflow with 3 ref slots covers 1-, 2-, and 3-ref rows.
 
 See `workflows/*.example.json` for the convention.
 

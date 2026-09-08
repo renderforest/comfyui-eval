@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./db');
-const { ComfyClient, instantiateWorkflow } = require('./comfy');
+const { ComfyClient, instantiateWorkflow, pruneEmptyRefNodes } = require('./comfy');
 const { COMFY_URL, JOB_TIMEOUT_MS, OUTPUTS_DIR, REFS_DIR, WORKFLOWS_DIR } = require('./config');
 
 const activeRuns = new Set();
@@ -50,7 +50,12 @@ async function generateInstance({ client, instance, workflows }) {
   const values = {
     PROMPT: instance.prompt,
     STYLE: instance.style || '',
+    // ", <style>" when present — lets templates avoid a dangling comma on null styles
+    STYLE_SUFFIX: instance.style ? `, ${instance.style}` : '',
     SEED: seed,
+    REF_1: '',
+    REF_2: '',
+    REF_3: '',
   };
 
   for (const [index, url] of [instance.ref_1, instance.ref_2, instance.ref_3].entries()) {
@@ -60,7 +65,10 @@ async function generateInstance({ client, instance, workflows }) {
   }
 
   const template = instance.kind === 'ref' ? workflows.edit : workflows.text2img;
-  const workflow = instantiateWorkflow({ template, values });
+  const workflow = pruneEmptyRefNodes({
+    workflow: instantiateWorkflow({ template, values }),
+    objectInfo: await client.getObjectInfo(),
+  });
 
   const promptId = await client.queuePrompt(workflow);
   db.prepare('UPDATE instances SET comfy_prompt_id = ?, seed = ? WHERE id = ?').run(

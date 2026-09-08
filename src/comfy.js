@@ -42,6 +42,15 @@ class ComfyClient {
     this.ws = null;
   }
 
+  async getObjectInfo() {
+    if (!this._objectInfo) {
+      const res = await fetch(`${this.baseUrl}/object_info`);
+      if (!res.ok) throw new Error(`GET /object_info failed: ${res.status}`);
+      this._objectInfo = await res.json();
+    }
+    return this._objectInfo;
+  }
+
   async uploadImage({ buffer, filename }) {
     const form = new FormData();
     form.append('image', new Blob([buffer]), filename);
@@ -161,4 +170,35 @@ function instantiateWorkflow({ template, values }) {
   return walk(template);
 }
 
-module.exports = { ComfyClient, instantiateWorkflow };
+// Removes LoadImage-style nodes whose image resolved to an empty string
+// (a row with fewer refs than the workflow has slots), then cascades:
+// downstream references to removed nodes are dropped when the input is
+// optional, or remove the referencing node too when it is required.
+function pruneEmptyRefNodes({ workflow, objectInfo }) {
+  const removed = new Set(
+    Object.entries(workflow)
+      .filter(([, n]) => /LoadImage/i.test(n.class_type) && n.inputs.image === '')
+      .map(([id]) => id)
+  );
+  if (!removed.size) return workflow;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [id, node] of Object.entries(workflow)) {
+      if (removed.has(id)) continue;
+      for (const [name, value] of Object.entries(node.inputs)) {
+        if (!Array.isArray(value) || value.length !== 2 || !removed.has(String(value[0]))) continue;
+        const spec = (objectInfo[node.class_type] || {}).input || {};
+        if (spec.required && name in spec.required) {
+          removed.add(id);
+          changed = true;
+          break;
+        }
+        delete node.inputs[name];
+      }
+    }
+  }
+  return Object.fromEntries(Object.entries(workflow).filter(([id]) => !removed.has(id)));
+}
+
+module.exports = { ComfyClient, instantiateWorkflow, pruneEmptyRefNodes };
