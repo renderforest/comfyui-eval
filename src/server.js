@@ -66,20 +66,88 @@ app.post('/api/upload', upload.single('csv'), async (req, res) => {
   }
 });
 
+// ---- workflow library ----
+
+const uploadWorkflow = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.get('/api/workflows', (req, res) => {
+  res.json(db.prepare('SELECT id, name, kind, created_at FROM workflows ORDER BY id DESC').all());
+});
+
+app.post('/api/workflows', uploadWorkflow.single('workflow'), (req, res) => {
+  try {
+    const { kind } = req.body || {};
+    if (!['text2img', 'edit'].includes(kind)) {
+      return res.status(400).json({ error: 'kind must be text2img|edit' });
+    }
+    const raw = req.file ? req.file.buffer.toString('utf8') : JSON.stringify(req.body.json);
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return res.status(400).json({ error: 'Not valid JSON' });
+    }
+    const nodes = Object.values(parsed).filter((v) => v && typeof v === 'object' && v.class_type);
+    if (!nodes.length) {
+      return res.status(400).json({
+        error: 'No ComfyUI nodes found — export the workflow in API format (Dev mode → "Save (API Format)")',
+      });
+    }
+    const warnings = [];
+    if (!raw.includes('%%PROMPT%%')) warnings.push('no %%PROMPT%% placeholder found');
+    if (kind === 'edit' && !raw.includes('%%REF_1%%')) warnings.push('no %%REF_1%% placeholder found');
+    const name =
+      req.body.name || (req.file ? req.file.originalname.replace(/\.json$/i, '') : `workflow-${Date.now()}`);
+    const { lastInsertRowid } = db
+      .prepare('INSERT INTO workflows (name, kind, json) VALUES (?, ?, ?)')
+      .run(name, kind, raw);
+    res.json({ id: Number(lastInsertRowid), name, kind, warnings });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/workflows/:id', (req, res) => {
+  db.prepare('UPDATE runs SET text_workflow_id = NULL WHERE text_workflow_id = ?').run(req.params.id);
+  db.prepare('UPDATE runs SET edit_workflow_id = NULL WHERE edit_workflow_id = ?').run(req.params.id);
+  const result = db.prepare('DELETE FROM workflows WHERE id = ?').run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'Workflow not found' });
+  res.json({ ok: true });
+});
+
+// ---- runs ----
+
 app.post('/api/runs/:id/start', (req, res) => {
   const runId = Number(req.params.id);
   if (isRunActive(runId)) return res.status(409).json({ error: 'Run already in progress' });
+  const run = db.prepare('SELECT id FROM runs WHERE id = ?').get(runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+
+  const { textWorkflowId, editWorkflowId } = req.body || {};
+  db.prepare('UPDATE runs SET text_workflow_id = ?, edit_workflow_id = ? WHERE id = ?').run(
+    textWorkflowId || null,
+    editWorkflowId || null,
+    runId
+  );
+
   const kinds = db
     .prepare("SELECT DISTINCT kind FROM instances WHERE run_id = ? AND status != 'done'")
     .all(runId)
     .map((r) => r.kind);
+  const workflowExists = (id) => id && db.prepare('SELECT id FROM workflows WHERE id = ?').get(id);
   const missing = [
-    kinds.includes('text') && !fs.existsSync(path.join(WORKFLOWS_DIR, 'text2img.json')) && 'workflows/text2img.json',
-    kinds.includes('ref') && !fs.existsSync(path.join(WORKFLOWS_DIR, 'edit.json')) && 'workflows/edit.json',
+    kinds.includes('text') &&
+      !workflowExists(textWorkflowId) &&
+      !fs.existsSync(path.join(WORKFLOWS_DIR, 'text2img.json')) &&
+      'text2img',
+    kinds.includes('ref') &&
+      !workflowExists(editWorkflowId) &&
+      !fs.existsSync(path.join(WORKFLOWS_DIR, 'edit.json')) &&
+      'edit',
   ].filter(Boolean);
   if (missing.length) {
     return res.status(400).json({
-      error: `Missing ${missing.join(' and ')} — export your ComfyUI workflow(s) in API format with %%PROMPT%%/%%SEED%%/%%REF_1%% placeholders (see workflows/*.example.json)`,
+      error: `No ${missing.join(' and ')} workflow — upload one above (API format with %%PROMPT%%/%%SEED%%/%%REF_1%% placeholders) or drop it into workflows/`,
     });
   }
   // fire-and-forget; UI polls for progress

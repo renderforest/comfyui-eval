@@ -49,6 +49,8 @@
 <header>
   <h1>ComfyUI Eval</h1>
   <label>Run <select id="runSelect"></select></label>
+  <label>text2img <select id="wfText"></select></label>
+  <label>edit <select id="wfEdit"></select></label>
   <button class="primary" id="startBtn">Start generation</button>
   <span class="stats" id="stats"></span>
   <span style="flex:1"></span>
@@ -56,6 +58,16 @@
     <input type="file" id="csvFile" accept=".csv" required>
     <input type="text" id="csvName" placeholder="run name (optional)" size="16">
     <button class="primary" type="submit">Upload CSV → sample 100</button>
+  </form>
+  <form id="wfForm">
+    <input type="file" id="wfFile" accept=".json" required>
+    <select id="wfKind">
+      <option value="text2img">text2img</option>
+      <option value="edit">edit</option>
+    </select>
+    <input type="text" id="wfName" placeholder="workflow name (optional)" size="16">
+    <button class="primary" type="submit">Upload workflow</button>
+    <button type="button" id="wfDelete" title="Delete the workflow selected in the matching dropdown">Delete selected</button>
   </form>
 </header>
 <main>
@@ -68,6 +80,7 @@
 const $ = (id) => document.getElementById(id);
 let currentRunId = null;
 let pollTimer = null;
+let wfLoadedForRun = null;
 
 const api = async (url, opts) => {
   const res = await fetch(url, opts);
@@ -95,12 +108,30 @@ async function selectRun(runId) {
   await refresh();
 }
 
+async function loadWorkflows(run) {
+  const workflows = await api('/api/workflows');
+  const fill = (sel, kind, selected) => {
+    const options = workflows.filter((w) => w.kind === kind);
+    sel.innerHTML =
+      `<option value="">— file on disk —</option>` +
+      options.map((w) => `<option value="${w.id}">#${w.id} ${escapeHtml(w.name)}</option>`).join('');
+    if (selected && options.some((w) => w.id === selected)) sel.value = selected;
+    else if (!selected && options.length) sel.value = options[0].id;
+  };
+  fill($('wfText'), 'text2img', run && run.text_workflow_id);
+  fill($('wfEdit'), 'edit', run && run.edit_workflow_id);
+}
+
 async function refresh() {
   if (currentRunId == null) return;
   const [run, instances] = await Promise.all([
     api(`/api/runs/${currentRunId}`),
     api(`/api/runs/${currentRunId}/instances`),
   ]);
+  if (wfLoadedForRun !== currentRunId) {
+    await loadWorkflows(run);
+    wfLoadedForRun = currentRunId;
+  }
   renderStats(run);
   renderGrid(instances);
   clearTimeout(pollTimer);
@@ -173,7 +204,46 @@ $('runSelect').onchange = (e) => selectRun(Number(e.target.value));
 
 $('startBtn').onclick = async () => {
   try {
-    await api(`/api/runs/${currentRunId}/start`, { method: 'POST' });
+    await api(`/api/runs/${currentRunId}/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        textWorkflowId: Number($('wfText').value) || null,
+        editWorkflowId: Number($('wfEdit').value) || null,
+      }),
+    });
+    refresh();
+  } catch (err) { alert(err.message); }
+};
+
+$('wfForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const file = $('wfFile').files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('workflow', file);
+  form.append('kind', $('wfKind').value);
+  if ($('wfName').value) form.append('name', $('wfName').value);
+  try {
+    const res = await api('/api/workflows', { method: 'POST', body: form });
+    if (res.warnings && res.warnings.length) alert(`Uploaded with warnings: ${res.warnings.join('; ')}`);
+    wfLoadedForRun = null;
+    await refresh();
+    const sel = res.kind === 'edit' ? $('wfEdit') : $('wfText');
+    sel.value = res.id;
+  } catch (err) { alert(err.message); }
+  e.target.reset();
+};
+
+$('wfDelete').onclick = async () => {
+  const kind = $('wfKind').value;
+  const sel = kind === 'edit' ? $('wfEdit') : $('wfText');
+  const id = Number(sel.value);
+  if (!id) return alert(`Nothing selected in the ${kind} dropdown`);
+  if (!confirm(`Delete ${kind} workflow "${sel.options[sel.selectedIndex].text}"?`)) return;
+  try {
+    await api(`/api/workflows/${id}`, { method: 'DELETE' });
+    wfLoadedForRun = null;
     refresh();
   } catch (err) { alert(err.message); }
 };

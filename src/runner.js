@@ -9,19 +9,29 @@ const { COMFY_URL, JOB_TIMEOUT_MS, OUTPUTS_DIR, REFS_DIR, WORKFLOWS_DIR } = requ
 
 const activeRuns = new Set();
 
-function loadWorkflow(name) {
+// strips helper keys like "_comment"; keeps only node entries
+const onlyNodes = (template) =>
+  Object.fromEntries(
+    Object.entries(template).filter(([, v]) => v && typeof v === 'object' && v.class_type)
+  );
+
+// Uploaded workflow (by id) wins; falls back to workflows/<kind>.json on disk.
+function loadWorkflow({ kind, workflowId }) {
+  if (workflowId) {
+    const row = db.prepare('SELECT json FROM workflows WHERE id = ?').get(workflowId);
+    if (!row) throw new Error(`Workflow #${workflowId} not found in the library`);
+    return onlyNodes(JSON.parse(row.json));
+  }
+  const name = kind === 'ref' ? 'edit' : 'text2img';
   const file = path.join(WORKFLOWS_DIR, `${name}.json`);
   if (!fs.existsSync(file)) {
     throw new Error(
-      `Missing workflow ${file}. Export your ComfyUI workflow in API format, ` +
-        `add %%PROMPT%% / %%STYLE%% / %%SEED%% / %%REF_1%%.. placeholders, and save it there.`
+      `No workflow selected for "${name}" and ${file} does not exist. ` +
+        `Upload one in the admin site, or export your ComfyUI workflow in API format ` +
+        `with %%PROMPT%% / %%STYLE%% / %%SEED%% / %%REF_1%%.. placeholders and save it there.`
     );
   }
-  const template = JSON.parse(fs.readFileSync(file, 'utf8'));
-  // keep only node entries; drops helper keys like "_comment"
-  return Object.fromEntries(
-    Object.entries(template).filter(([, v]) => v && typeof v === 'object' && v.class_type)
-  );
+  return onlyNodes(JSON.parse(fs.readFileSync(file, 'utf8')));
 }
 
 async function downloadRef({ url, instanceId, index }) {
@@ -72,7 +82,7 @@ async function runPending({ runId, onProgress = () => {} }) {
   if (activeRuns.has(runId)) throw new Error(`Run ${runId} is already in progress`);
   activeRuns.add(runId);
   try {
-    const runRow = db.prepare('SELECT id FROM runs WHERE id = ?').get(runId);
+    const runRow = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
     if (!runRow) throw new Error(`Run ${runId} not found`);
 
     const kinds = db
@@ -80,8 +90,12 @@ async function runPending({ runId, onProgress = () => {} }) {
       .all(runId)
       .map((r) => r.kind);
     const workflows = {
-      text2img: kinds.includes('text') ? loadWorkflow('text2img') : null,
-      edit: kinds.includes('ref') ? loadWorkflow('edit') : null,
+      text2img: kinds.includes('text')
+        ? loadWorkflow({ kind: 'text', workflowId: runRow.text_workflow_id })
+        : null,
+      edit: kinds.includes('ref')
+        ? loadWorkflow({ kind: 'ref', workflowId: runRow.edit_workflow_id })
+        : null,
     };
 
     const pending = db

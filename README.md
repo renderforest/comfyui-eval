@@ -18,10 +18,12 @@ Configuration is via environment variables (or a `.env` file), all optional:
 
 ### Workflows (required before generating)
 
-Export your workflows from the ComfyUI GUI in **API format** (enable Dev mode → "Save (API Format)") and save them as:
+Export your workflows from the ComfyUI GUI in **API format** (enable Dev mode → "Save (API Format)"). Two ways to provide them:
 
-- `workflows/text2img.json` — used for text-only rows
-- `workflows/edit.json` — used for rows with reference images
+1. **Upload in the admin site** (recommended): "Upload workflow" form in the header, choose kind (`text2img` or `edit`). Uploaded workflows are stored in SQLite, appear in the dropdowns next to **Start generation**, and can be reused for any later run; each run remembers which workflows it was started with.
+2. **Files on disk** (fallback, used when a dropdown is set to "— file on disk —"):
+   - `workflows/text2img.json` — used for text-only rows
+   - `workflows/edit.json` — used for rows with reference images
 
 Insert placeholders where the runner should inject values:
 

@@ -42,6 +42,23 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_instances_run ON instances (run_id, status);
+
+  CREATE TABLE IF NOT EXISTS workflows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('text2img', 'edit')),
+    json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
+
+// additive migrations for DBs created before the workflow library existed
+for (const column of ['text_workflow_id INTEGER', 'edit_workflow_id INTEGER']) {
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN ${column} REFERENCES workflows(id)`);
+  } catch {
+    // column already exists
+  }
+}
 
 module.exports = db;
