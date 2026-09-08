@@ -1,0 +1,46 @@
+{
+  "_comment": "EXAMPLE ONLY. Export YOUR edit/img2img workflow in API format, insert placeholders, save as workflows/edit.json. Placeholders: %%PROMPT%%, %%STYLE%%, %%SEED%%, %%REF_1%%, %%REF_2%%, %%REF_3%% (ref placeholders receive the filename of the image uploaded to ComfyUI's input dir; wire them into LoadImage nodes). If your workflow takes fewer refs than a row has, extra refs are simply unused.",
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "%%REF_1%%" }
+  },
+  "2": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "your-model.safetensors" }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["2", 1], "text": "%%PROMPT%%, %%STYLE%%" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "clip": ["2", 1], "text": "" }
+  },
+  "5": {
+    "class_type": "VAEEncode",
+    "inputs": { "pixels": ["1", 0], "vae": ["2", 2] }
+  },
+  "6": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["2", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "latent_image": ["5", 0],
+      "seed": "%%SEED%%",
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 0.7
+    }
+  },
+  "7": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["6", 0], "vae": ["2", 2] }
+  },
+  "8": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["7", 0], "filename_prefix": "eval-edit" }
+  }
+}

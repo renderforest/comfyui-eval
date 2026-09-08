@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComfyUI Eval</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --border: #e2e5ea; --text: #1c2330;
+    --muted: #6b7482; --accent: #3b6ef6; --ok: #1f9d55; --err: #d64545; --warn: #c98a1b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0 16px 0 0; }
+  select, input, button { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; cursor: pointer; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  .stats { color: var(--muted); }
+  .stats b { color: var(--text); }
+  main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .imgs figure { margin: 0; }
+  .imgs figcaption { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .imgs img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #eceef2; border-radius: 6px; cursor: zoom-in; }
+  .placeholder { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: #eceef2; border-radius: 6px; color: var(--muted); font-size: 12px; text-align: center; padding: 8px; }
+  .prompt { margin: 10px 0 6px; white-space: pre-wrap; word-break: break-word; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eef1f6; color: var(--muted); }
+  .badge.done { background: #e2f5e9; color: var(--ok); }
+  .badge.failed { background: #fbe7e7; color: var(--err); }
+  .badge.running { background: #fdf3df; color: var(--warn); }
+  .error { color: var(--err); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .refs { display: flex; gap: 6px; margin-top: 6px; }
+  .refs img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); }
+  .rate { display: flex; gap: 6px; margin-top: 10px; }
+  .rate button { cursor: pointer; font-size: 12px; }
+  .rate button.sel { background: var(--accent); color: #fff; border-color: var(--accent); }
+  dialog { border: none; border-radius: 10px; padding: 0; max-width: 92vw; max-height: 92vh; }
+  dialog img { max-width: 92vw; max-height: 92vh; display: block; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .empty { color: var(--muted); padding: 60px 0; text-align: center; }
+  #uploadForm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ComfyUI Eval</h1>
+  <label>Run <select id="runSelect"></select></label>
+  <button class="primary" id="startBtn">Start generation</button>
+  <span class="stats" id="stats"></span>
+  <span style="flex:1"></span>
+  <form id="uploadForm">
+    <input type="file" id="csvFile" accept=".csv" required>
+    <input type="text" id="csvName" placeholder="run name (optional)" size="16">
+    <button class="primary" type="submit">Upload CSV → sample 100</button>
+  </form>
+</header>
+<main>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden>No runs yet — upload a CSV above, or run <code>npm run sample -- &lt;csv&gt;</code>.</div>
+</main>
+<dialog id="zoom"><img id="zoomImg" alt=""></dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentRunId = null;
+let pollTimer = null;
+
+const api = async (url, opts) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || res.statusText);
+  return json;
+};
+
+async function loadRuns(keepSelection = true) {
+  const runs = await api('/api/runs');
+  const sel = $('runSelect');
+  const prev = keepSelection ? (currentRunId ?? Number(sel.value)) : null;
+  sel.innerHTML = runs.map((r) =>
+    `<option value="${r.id}">#${r.id} ${escapeHtml(r.name)} (${r.done||0}/${r.total})</option>`
+  ).join('');
+  $('empty').hidden = runs.length > 0;
+  if (!runs.length) { $('grid').innerHTML = ''; $('stats').textContent = ''; return; }
+  const target = runs.find((r) => r.id === prev) ? prev : runs[0].id;
+  sel.value = target;
+  await selectRun(Number(target));
+}
+
+async function selectRun(runId) {
+  currentRunId = runId;
+  await refresh();
+}
+
+async function refresh() {
+  if (currentRunId == null) return;
+  const [run, instances] = await Promise.all([
+    api(`/api/runs/${currentRunId}`),
+    api(`/api/runs/${currentRunId}/instances`),
+  ]);
+  renderStats(run);
+  renderGrid(instances);
+  clearTimeout(pollTimer);
+  if (run.active || (run.running || 0) > 0) pollTimer = setTimeout(refresh, 3000);
+  $('startBtn').disabled = !!run.active;
+  $('startBtn').textContent = run.active ? 'Running…' : 'Start generation';
+}
+
+function renderStats(run) {
+  const pending = run.total - (run.done||0) - (run.failed||0) - (run.running||0);
+  $('stats').innerHTML =
+    `<b>${run.done||0}</b> done · <b>${run.failed||0}</b> failed · <b>${pending}</b> pending` +
+    ` &nbsp;|&nbsp; ratings: prod <b>${run.rated_prod||0}</b> / local <b>${run.rated_local||0}</b> / tie <b>${run.rated_tie||0}</b>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function imgOrPlaceholder(src, label, note) {
+  return `<figure><figcaption>${label}</figcaption>` +
+    (src
+      ? `<img loading="lazy" src="${escapeHtml(src)}" onclick="zoom(this.src)">`
+      : `<div class="placeholder">${escapeHtml(note || 'not generated yet')}</div>`) +
+    `</figure>`;
+}
+
+function renderGrid(instances) {
+  $('grid').innerHTML = instances.map((i) => {
+    const refs = [i.ref_1, i.ref_2, i.ref_3].filter(Boolean);
+    return `<div class="card">
+      <div class="meta">
+        <span class="badge ${i.status}">${i.status}</span>
+        <span class="badge">${i.kind === 'ref' ? 'with refs' : 'text-only'}</span>
+        ${i.style ? `<span class="badge">style: ${escapeHtml(i.style)}</span>` : ''}
+        ${i.plan ? `<span class="badge">${escapeHtml(i.plan)}</span>` : ''}
+        ${i.duration_ms ? `<span class="badge">${(i.duration_ms/1000).toFixed(1)}s</span>` : ''}
+        ${i.seed != null ? `<span class="badge">seed ${i.seed}</span>` : ''}
+      </div>
+      <div class="imgs">
+        ${imgOrPlaceholder(i.prod_image_url, 'Production')}
+        ${imgOrPlaceholder(i.output_path ? `/outputs/${encodeURIComponent(i.output_path)}` : null, 'Local', i.status === 'failed' ? 'failed' : undefined)}
+      </div>
+      <p class="prompt">${escapeHtml(i.prompt)}</p>
+      ${i.error ? `<div class="error">${escapeHtml(i.error)}</div>` : ''}
+      ${refs.length ? `<div class="refs">${refs.map((r) => `<img loading="lazy" src="${escapeHtml(r)}" onclick="zoom(this.src)">`).join('')}</div>` : ''}
+      <div class="rate" data-id="${i.id}">
+        ${['prod','local','tie'].map((r) =>
+          `<button class="${i.rating === r ? 'sel' : ''}" onclick="rate(${i.id}, '${r}', ${JSON.stringify(i.rating) === JSON.stringify(r)})">${
+            r === 'prod' ? 'Prod better' : r === 'local' ? 'Local better' : 'Tie'}</button>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.zoom = (src) => { $('zoomImg').src = src; $('zoom').showModal(); };
+$('zoom').onclick = () => $('zoom').close();
+
+window.rate = async (id, rating, alreadySelected) => {
+  await api(`/api/instances/${id}/rating`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ rating: alreadySelected ? null : rating }),
+  });
+  refresh();
+};
+
+$('runSelect').onchange = (e) => selectRun(Number(e.target.value));
+
+$('startBtn').onclick = async () => {
+  try {
+    await api(`/api/runs/${currentRunId}/start`, { method: 'POST' });
+    refresh();
+  } catch (err) { alert(err.message); }
+};
+
+$('uploadForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const file = $('csvFile').files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('csv', file);
+  if ($('csvName').value) form.append('name', $('csvName').value);
+  const btn = e.target.querySelector('button');
+  btn.disabled = true; btn.textContent = 'Sampling…';
+  try {
+    const res = await api('/api/upload', { method: 'POST', body: form });
+    currentRunId = res.runId;
+    await loadRuns();
+  } catch (err) { alert(err.message); }
+  btn.disabled = false; btn.textContent = 'Upload CSV → sample 100';
+  e.target.reset();
+};
+
+loadRuns(false);
+</script>
+</body>
+</html>
