@@ -132,9 +132,24 @@ app.post('/api/workflows', uploadWorkflow.single('workflow'), (req, res) => {
         error: 'No ComfyUI nodes found — export the workflow in API format (Dev mode → "Save (API Format)")',
       });
     }
+    // reject obvious kind mix-ups instead of storing a workflow that can't run
+    const hasRef = raw.includes('%%REF_1%%');
+    if (kind === 'edit' && !hasRef) {
+      return res.status(400).json({
+        error:
+          'This file has no %%REF_1%% placeholder — it looks like a text → image workflow. ' +
+          'Use the Upload button on the "Text → image" row instead.',
+      });
+    }
+    if (kind === 'text2img' && hasRef) {
+      return res.status(400).json({
+        error:
+          'This file contains %%REF_1%% — it looks like an image → image (edit) workflow. ' +
+          'Use the Upload button on the "Image → image" row instead.',
+      });
+    }
     const warnings = [];
     if (!raw.includes('%%PROMPT%%')) warnings.push('no %%PROMPT%% placeholder found');
-    if (kind === 'edit' && !raw.includes('%%REF_1%%')) warnings.push('no %%REF_1%% placeholder found');
     const name =
       req.body.name || (req.file ? req.file.originalname.replace(/\.json$/i, '') : `workflow-${Date.now()}`);
     const { lastInsertRowid } = db
