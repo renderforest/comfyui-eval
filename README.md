@@ -56,3 +56,11 @@ Everything is also doable from the admin site: upload a CSV (creates a new run),
 Expected CSV columns: `fileCreatedAt (Date Hour), plan, model, style, prompt, filePath, first_ref_image, second_ref_image, third_ref_image` (`null` strings treated as empty). `filePath` is the production result image URL.
 
 State lives in `data/eval.sqlite`; generated images in `data/outputs/`. Sampling is seeded, so the same CSV + seed always picks the same 100 rows.
+
+## Caching & reuse
+
+Everything is persisted and reused across runs:
+
+- **Generated images** — before generating, the runner checks whether an identical job (same kind + prompt + style + refs + workflow content) already produced an image; if so it's reused instantly (marked "reused" in the UI) instead of regenerated.
+- **Reference images** — downloaded once into `data/refs/` (keyed by URL) and reused from disk.
+- **Production images** — archived into `data/prod/` on first run and served locally; the UI falls back to the original URL if the local copy is missing.

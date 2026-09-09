@@ -15,6 +15,7 @@ module.exports = {
   DB_PATH: path.join(ROOT, 'data', 'eval.sqlite'),
   OUTPUTS_DIR: path.join(ROOT, 'data', 'outputs'),
   REFS_DIR: path.join(ROOT, 'data', 'refs'),
+  PROD_DIR: path.join(ROOT, 'data', 'prod'),
   CSV_DIR: path.join(ROOT, 'data', 'csv'),
   WORKFLOWS_DIR: path.join(ROOT, 'workflows'),
 };

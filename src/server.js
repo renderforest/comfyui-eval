@@ -7,12 +7,13 @@ const multer = require('multer');
 const db = require('./db');
 const { sampleCsv } = require('./sample');
 const { runPending, isRunActive } = require('./runner');
-const { PORT, OUTPUTS_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR } = require('./config');
+const { PORT, OUTPUTS_DIR, PROD_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR } = require('./config');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/outputs', express.static(OUTPUTS_DIR));
+app.use('/prod', express.static(PROD_DIR));
 
 fs.mkdirSync(CSV_DIR, { recursive: true });
 const upload = multer({ dest: CSV_DIR, limits: { fileSize: 500 * 1024 * 1024 } });

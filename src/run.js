@@ -16,8 +16,8 @@ runPending({
   runId,
   onProgress: ({ instanceId, status }) => console.log(`instance ${instanceId}: ${status}`),
 })
-  .then(({ processed, done, failed }) => {
-    console.log(`Run ${runId} finished: ${processed} processed, ${done} done, ${failed} failed`);
+  .then(({ processed, done, failed, reused }) => {
+    console.log(`Run ${runId} finished: ${processed} processed, ${done} done (${reused} reused), ${failed} failed`);
     process.exit(failed ? 2 : 0);
   })
   .catch((err) => {

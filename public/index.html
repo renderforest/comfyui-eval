@@ -152,10 +152,11 @@ function escapeHtml(s) {
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function imgOrPlaceholder(src, label, note) {
+function imgOrPlaceholder(src, label, note, fallback) {
+  const onerror = fallback ? ` onerror="this.onerror=null;this.src='${escapeHtml(fallback)}'"` : '';
   return `<figure><figcaption>${label}</figcaption>` +
     (src
-      ? `<img loading="lazy" src="${escapeHtml(src)}" onclick="zoom(this.src)">`
+      ? `<img loading="lazy" src="${escapeHtml(src)}" onclick="zoom(this.src)"${onerror}>`
       : `<div class="placeholder">${escapeHtml(note || 'not generated yet')}</div>`) +
     `</figure>`;
 }
@@ -173,8 +174,10 @@ function renderGrid(instances) {
         ${i.seed != null ? `<span class="badge">seed ${i.seed}</span>` : ''}
       </div>
       <div class="imgs">
-        ${imgOrPlaceholder(i.prod_image_url, 'Production')}
-        ${imgOrPlaceholder(i.output_path ? `/outputs/${encodeURIComponent(i.output_path)}` : null, 'Local', i.status === 'failed' ? 'failed' : undefined)}
+        ${imgOrPlaceholder(
+          i.prod_image_path ? `/prod/${encodeURIComponent(i.prod_image_path)}` : i.prod_image_url,
+          'Production', undefined, i.prod_image_path ? i.prod_image_url : undefined)}
+        ${imgOrPlaceholder(i.output_path ? `/outputs/${encodeURIComponent(i.output_path)}` : null, 'Local' + (i.reused ? ' (reused)' : ''), i.status === 'failed' ? 'failed' : undefined)}
       </div>
       <p class="prompt">${escapeHtml(i.prompt)}</p>
       ${i.error ? `<div class="error">${escapeHtml(i.error)}</div>` : ''}

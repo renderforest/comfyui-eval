@@ -52,13 +52,20 @@ db.exec(`
   );
 `);
 
-// additive migrations for DBs created before the workflow library existed
-for (const column of ['text_workflow_id INTEGER', 'edit_workflow_id INTEGER']) {
+// additive migrations for DBs created before these features existed
+for (const [table, column] of [
+  ['runs', 'text_workflow_id INTEGER REFERENCES workflows(id)'],
+  ['runs', 'edit_workflow_id INTEGER REFERENCES workflows(id)'],
+  ['instances', 'gen_key TEXT'],
+  ['instances', 'prod_image_path TEXT'],
+  ['instances', 'reused INTEGER NOT NULL DEFAULT 0'],
+]) {
   try {
-    db.exec(`ALTER TABLE runs ADD COLUMN ${column} REFERENCES workflows(id)`);
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
   } catch {
     // column already exists
   }
 }
+db.exec('CREATE INDEX IF NOT EXISTS idx_instances_gen_key ON instances (gen_key)');
 
 module.exports = db;
