@@ -62,7 +62,7 @@ function parseCsv(csvPath) {
 const rowKey = (r) =>
   [r.prompt, r.ref1 || '', r.ref2 || '', r.ref3 || ''].join('|');
 
-async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null }) {
+async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null, textPercent = 50 }) {
   if (seed == null) seed = Math.floor(Math.random() * 2 ** 31);
   let { textRows, refRows } = await parseCsv(csvPath);
   if (excludeKeys && excludeKeys.size) {
@@ -70,12 +70,13 @@ async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null 
     refRows = refRows.filter((r) => !excludeKeys.has(rowKey(r)));
   }
   const rand = mulberry32(seed);
-  const half = Math.floor(count / 2);
+  const pct = Math.min(100, Math.max(0, Number(textPercent)));
+  const wantText = Math.round((count * pct) / 100);
 
   const shuffledText = shuffle(textRows, rand);
   const shuffledRef = shuffle(refRows, rand);
-  // 50/50 split; if one bucket is short, fill the gap from the other.
-  let pickText = Math.min(half, shuffledText.length);
+  // requested split; if one bucket is short, fill the gap from the other.
+  let pickText = Math.min(wantText, shuffledText.length);
   let pickRef = Math.min(count - pickText, shuffledRef.length);
   pickText = Math.min(count - pickRef, shuffledText.length);
 
@@ -136,6 +137,7 @@ if (require.main === module) {
     name: flag('name', path.basename(csvPath, path.extname(csvPath))),
     count: Number(flag('count', 100)),
     seed: seedFlag == null ? undefined : Number(seedFlag),
+    textPercent: Number(flag('text-percent', 50)),
   })
     .then((res) => {
       console.log(

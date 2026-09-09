@@ -68,6 +68,7 @@ app.post('/api/upload', upload.single('csv'), async (req, res) => {
       name: req.body.name || req.file.originalname.replace(/\.csv$/i, ''),
       count: Number(req.body.count) || 100,
       seed: req.body.seed ? Number(req.body.seed) : undefined,
+      textPercent: req.body.textPercent ? Number(req.body.textPercent) : 50,
       excludeKeys: req.body.excludeExisting === 'true' ? usedRowKeys() : null,
     });
     res.json(result);
@@ -84,13 +85,14 @@ app.post('/api/runs/:id/resample', async (req, res) => {
     if (!fs.existsSync(run.csv_path)) {
       return res.status(400).json({ error: `Source CSV no longer exists: ${run.csv_path}` });
     }
-    const { count, seed, excludeExisting = true } = req.body || {};
+    const { count, seed, excludeExisting = true, textPercent } = req.body || {};
     const bulkNo = db.prepare('SELECT COUNT(*) AS c FROM runs WHERE csv_path = ?').get(run.csv_path).c + 1;
     const result = await sampleCsv({
       csvPath: run.csv_path,
       name: req.body.name || `${run.name} · bulk ${bulkNo}`,
       count: Number(count) || 100,
       seed: seed ? Number(seed) : undefined,
+      textPercent: textPercent ? Number(textPercent) : 50,
       excludeKeys: excludeExisting ? usedRowKeys() : null,
     });
     // carry the workflow selection over to the new bulk
