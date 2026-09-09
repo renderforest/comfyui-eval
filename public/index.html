@@ -92,6 +92,7 @@
       <div class="hint" id="genDetail"></div>
       <div class="divider"></div>
       <button class="primary" id="startBtn" style="width:100%">Start generation</button>
+      <button id="stopBtn" style="width:100%; margin-top:8px; color:var(--err); border-color:var(--err)" hidden>Stop generation</button>
     </div>
 
     <div class="card">
@@ -176,6 +177,7 @@ async function refresh() {
   if (run.active || (run.running || 0) > 0) pollTimer = setTimeout(refresh, 3000);
   $('startBtn').disabled = !!run.active;
   $('startBtn').textContent = run.active ? 'Running…' : 'Start generation';
+  $('stopBtn').hidden = !run.active;
 }
 
 function renderStats(run) {
@@ -253,6 +255,12 @@ $('startBtn').onclick = async () => {
     });
     refresh();
   } catch (err) { alert(err.message); }
+};
+
+$('stopBtn').onclick = async () => {
+  $('stopBtn').disabled = true; $('stopBtn').textContent = 'Stopping…';
+  try { await post(`/api/runs/${currentRunId}/stop`, {}); } catch (err) { alert(err.message); }
+  setTimeout(() => { $('stopBtn').disabled = false; $('stopBtn').textContent = 'Stop generation'; refresh(); }, 1500);
 };
 
 // workflow upload: the Upload button next to each picker opens the file dialog for that kind

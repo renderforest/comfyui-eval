@@ -6,8 +6,8 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { sampleCsv, rowKey } = require('./sample');
-const { runPending, isRunActive } = require('./runner');
-const { PORT, OUTPUTS_DIR, PROD_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR } = require('./config');
+const { runPending, isRunActive, requestStop } = require('./runner');
+const { PORT, OUTPUTS_DIR, PROD_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR, COMFY_URL } = require('./config');
 
 const app = express();
 app.use(express.json());
@@ -207,6 +207,18 @@ app.post('/api/runs/:id/start', (req, res) => {
   // fire-and-forget; UI polls for progress
   runPending({ runId }).catch((err) => console.error(`Run ${runId} failed: ${err.message}`));
   res.json({ started: true, runId });
+});
+
+app.post('/api/runs/:id/stop', async (req, res) => {
+  const runId = Number(req.params.id);
+  if (!requestStop(runId)) return res.status(409).json({ error: 'Run is not in progress' });
+  // abort the job currently executing on ComfyUI; the loop stops after it
+  try {
+    await fetch(`${COMFY_URL}/interrupt`, { method: 'POST' });
+  } catch {
+    // ComfyUI unreachable — the loop still stops before the next instance
+  }
+  res.json({ stopping: true, runId });
 });
 
 app.post('/api/instances/:id/rating', (req, res) => {

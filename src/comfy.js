@@ -97,7 +97,9 @@ class ComfyClient {
       const onMessage = (msg) => {
         const data = msg.data || {};
         if (data.prompt_id !== promptId) return;
-        if (msg.type === 'execution_error') {
+        if (msg.type === 'execution_interrupted') {
+          finish(reject, new Error('Generation interrupted'));
+        } else if (msg.type === 'execution_error') {
           finish(reject, new Error(`ComfyUI execution error: ${data.exception_message || JSON.stringify(data)}`));
         } else if (
           msg.type === 'execution_success' ||
