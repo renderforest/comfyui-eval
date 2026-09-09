@@ -5,7 +5,7 @@ const path = require('path');
 const express = require('express');
 const multer = require('multer');
 const db = require('./db');
-const { sampleCsv } = require('./sample');
+const { sampleCsv, rowKey } = require('./sample');
 const { runPending, isRunActive } = require('./runner');
 const { PORT, OUTPUTS_DIR, PROD_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR } = require('./config');
 
@@ -50,6 +50,14 @@ app.get('/api/runs/:id/instances', (req, res) => {
   res.json(instances);
 });
 
+// prompt+refs of every instance ever sampled — used to avoid re-testing the same rows
+function usedRowKeys() {
+  const rows = db.prepare('SELECT prompt, ref_1, ref_2, ref_3 FROM instances').all();
+  return new Set(
+    rows.map((r) => rowKey({ prompt: r.prompt, ref1: r.ref_1, ref2: r.ref_2, ref3: r.ref_3 }))
+  );
+}
+
 app.post('/api/upload', upload.single('csv'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No csv file provided' });
@@ -59,8 +67,38 @@ app.post('/api/upload', upload.single('csv'), async (req, res) => {
       csvPath: named,
       name: req.body.name || req.file.originalname.replace(/\.csv$/i, ''),
       count: Number(req.body.count) || 100,
-      seed: Number(req.body.seed) || 42,
+      seed: req.body.seed ? Number(req.body.seed) : undefined,
+      excludeKeys: req.body.excludeExisting === 'true' ? usedRowKeys() : null,
     });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// new bulk from an existing run's CSV
+app.post('/api/runs/:id/resample', async (req, res) => {
+  try {
+    const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+    if (!fs.existsSync(run.csv_path)) {
+      return res.status(400).json({ error: `Source CSV no longer exists: ${run.csv_path}` });
+    }
+    const { count, seed, excludeExisting = true } = req.body || {};
+    const bulkNo = db.prepare('SELECT COUNT(*) AS c FROM runs WHERE csv_path = ?').get(run.csv_path).c + 1;
+    const result = await sampleCsv({
+      csvPath: run.csv_path,
+      name: req.body.name || `${run.name} · bulk ${bulkNo}`,
+      count: Number(count) || 100,
+      seed: seed ? Number(seed) : undefined,
+      excludeKeys: excludeExisting ? usedRowKeys() : null,
+    });
+    // carry the workflow selection over to the new bulk
+    db.prepare('UPDATE runs SET text_workflow_id = ?, edit_workflow_id = ? WHERE id = ?').run(
+      run.text_workflow_id,
+      run.edit_workflow_id,
+      result.runId
+    );
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -59,8 +59,16 @@ function parseCsv(csvPath) {
   });
 }
 
-async function sampleCsv({ csvPath, name, count = 100, seed = 42 }) {
-  const { textRows, refRows } = await parseCsv(csvPath);
+const rowKey = (r) =>
+  [r.prompt, r.ref1 || '', r.ref2 || '', r.ref3 || ''].join('|');
+
+async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null }) {
+  if (seed == null) seed = Math.floor(Math.random() * 2 ** 31);
+  let { textRows, refRows } = await parseCsv(csvPath);
+  if (excludeKeys && excludeKeys.size) {
+    textRows = textRows.filter((r) => !excludeKeys.has(rowKey(r)));
+    refRows = refRows.filter((r) => !excludeKeys.has(rowKey(r)));
+  }
   const rand = mulberry32(seed);
   const half = Math.floor(count / 2);
 
@@ -100,6 +108,7 @@ async function sampleCsv({ csvPath, name, count = 100, seed = 42 }) {
   return {
     runId,
     name,
+    seed,
     total: picked.length,
     text: picked.filter((r) => r.kind === 'text').length,
     ref: picked.filter((r) => r.kind === 'ref').length,
@@ -108,7 +117,7 @@ async function sampleCsv({ csvPath, name, count = 100, seed = 42 }) {
   };
 }
 
-module.exports = { sampleCsv };
+module.exports = { sampleCsv, rowKey };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -121,15 +130,16 @@ if (require.main === module) {
     console.error('Usage: node src/sample.js <csv> [--name <name>] [--count 100] [--seed 42]');
     process.exit(1);
   }
+  const seedFlag = flag('seed', null);
   sampleCsv({
     csvPath: path.resolve(csvPath),
     name: flag('name', path.basename(csvPath, path.extname(csvPath))),
     count: Number(flag('count', 100)),
-    seed: Number(flag('seed', 42)),
+    seed: seedFlag == null ? undefined : Number(seedFlag),
   })
     .then((res) => {
       console.log(
-        `Run #${res.runId} "${res.name}": sampled ${res.total} instances ` +
+        `Run #${res.runId} "${res.name}" (seed ${res.seed}): sampled ${res.total} instances ` +
           `(${res.text} text-only, ${res.ref} with refs) ` +
           `from pools of ${res.poolText} text / ${res.poolRef} ref rows`
       );
