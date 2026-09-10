@@ -51,6 +51,8 @@
   .error { color: var(--err); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
   .refs { display: flex; gap: 6px; margin-top: 6px; }
   .refs img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); }
+  .copy { padding: 0 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: none; color: var(--muted); vertical-align: middle; }
+  .copy:hover { color: var(--accent); border-color: var(--accent); }
   .rate { display: flex; gap: 6px; margin-top: 10px; }
   .rate button { font-size: 12px; }
   .rate button.sel { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -213,6 +215,7 @@ function imgOrPlaceholder(src, label, note, fallback) {
 }
 
 function renderGrid(instances) {
+  promptById = Object.fromEntries(instances.map((i) => [i.id, i.prompt]));
   $('grid').innerHTML = instances.map((i) => {
     const refs = [i.ref_1, i.ref_2, i.ref_3].filter(Boolean);
     return `<div class="card">
@@ -230,7 +233,7 @@ function renderGrid(instances) {
           'Production', undefined, i.prod_image_path ? i.prod_image_url : undefined)}
         ${imgOrPlaceholder(i.output_path ? `/outputs/${encodeURIComponent(i.output_path)}` : null, 'Local' + (i.reused ? ' (reused)' : ''), i.status === 'failed' ? 'failed' : undefined)}
       </div>
-      <p class="prompt">${escapeHtml(i.prompt)}</p>
+      <p class="prompt">${escapeHtml(i.prompt)} <button class="copy" onclick="copyPrompt(this, ${i.id})" title="Copy prompt">⧉</button></p>
       ${i.error ? `<div class="error">${escapeHtml(i.error)}</div>` : ''}
       ${refs.length ? `<div class="refs">${refs.map((r) => `<img loading="lazy" src="${escapeHtml(r)}" onclick="zoom(this.src)">`).join('')}</div>` : ''}
       <div class="rate" data-id="${i.id}">
@@ -241,6 +244,23 @@ function renderGrid(instances) {
     </div>`;
   }).join('');
 }
+
+let promptById = {};
+window.copyPrompt = async (btn, id) => {
+  try {
+    await navigator.clipboard.writeText(promptById[id] || '');
+  } catch {
+    // clipboard API needs HTTPS/localhost; fall back to a hidden textarea
+    const ta = document.createElement('textarea');
+    ta.value = promptById[id] || '';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  const old = btn.textContent;
+  btn.textContent = '✓';
+  setTimeout(() => { btn.textContent = old; }, 1200);
+};
 
 window.zoom = (src) => { $('zoomImg').src = src; $('zoom').showModal(); };
 $('zoom').onclick = () => $('zoom').close();
