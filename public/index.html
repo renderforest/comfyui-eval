@@ -51,6 +51,16 @@
   .error { color: var(--err); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
   .refs { display: flex; gap: 6px; margin-top: 6px; }
   .refs img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); }
+  .dd { position: relative; }
+  .dd > button { display: flex; align-items: center; gap: 8px; max-width: 420px; }
+  .dd .caret { color: var(--muted); font-size: 11px; }
+  .dd-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 380px; max-height: 60vh; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+  .dd-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; white-space: nowrap; }
+  .dd-row:hover { background: #eef1f6; }
+  .dd-row.sel { background: #e8eefc; }
+  .dd-row .dd-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .dd-row .dd-del { border: none; background: none; padding: 2px 4px; color: var(--muted); cursor: pointer; border-radius: 4px; }
+  .dd-row .dd-del:hover { color: var(--err); background: #fbe7e7; }
   .copy { padding: 0 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: none; color: var(--muted); vertical-align: middle; }
   .copy:hover { color: var(--accent); border-color: var(--accent); }
   .rate { display: flex; gap: 6px; margin-top: 10px; }
@@ -65,8 +75,10 @@
 <body>
 <header>
   <h1>ComfyUI Eval</h1>
-  <label>Run <select id="runSelect"></select></label>
-  <button class="iconbtn" id="deleteRunBtn" title="Delete this run and its images" style="color:var(--err)">🗑</button>
+  <div class="dd" id="runDd">
+    <button id="runBtn">— no runs —<span class="caret">▾</span></button>
+    <div class="dd-list" id="runList" hidden></div>
+  </div>
   <span class="stats" id="stats"></span>
 </header>
 <main>
@@ -141,20 +153,51 @@ const api = async (url, opts) => {
 const post = (url, body) =>
   api(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+const runLabel = (r) => `#${r.id} ${r.name} (${r.done||0}/${r.total})`;
+
 async function loadRuns(selectRunId) {
   const runs = await api('/api/runs');
-  const sel = $('runSelect');
-  const prev = selectRunId ?? currentRunId ?? Number(sel.value);
-  sel.innerHTML = runs.map((r) =>
-    `<option value="${r.id}">#${r.id} ${escapeHtml(r.name)} (${r.done||0}/${r.total})</option>`
-  ).join('');
+  const prev = selectRunId ?? currentRunId;
   $('empty').hidden = runs.length > 0;
-  if (!runs.length) { $('grid').innerHTML = ''; $('stats').textContent = ''; return; }
-  const target = runs.find((r) => r.id === prev) ? prev : runs[0].id;
-  sel.value = target;
-  currentRunId = Number(target);
+  if (!runs.length) {
+    $('runBtn').innerHTML = '— no runs —<span class="caret">▾</span>';
+    $('runList').innerHTML = '';
+    $('grid').innerHTML = ''; $('stats').textContent = '';
+    return;
+  }
+  currentRunId = runs.find((r) => r.id === prev) ? prev : runs[0].id;
+  $('runBtn').innerHTML = `${escapeHtml(runLabel(runs.find((r) => r.id === currentRunId)))}<span class="caret">▾</span>`;
+  $('runList').innerHTML = runs.map((r) => `
+    <div class="dd-row ${r.id === currentRunId ? 'sel' : ''}" data-id="${r.id}">
+      <span class="dd-name">${escapeHtml(runLabel(r))}</span>
+      <button class="dd-del" data-del="${r.id}" title="Delete this run and its images">🗑</button>
+    </div>`).join('');
   await refresh();
 }
+
+$('runBtn').onclick = (e) => { e.stopPropagation(); $('runList').hidden = !$('runList').hidden; };
+document.addEventListener('click', () => { $('runList').hidden = true; });
+
+$('runList').onclick = async (e) => {
+  e.stopPropagation();
+  const delId = e.target.dataset && e.target.dataset.del;
+  if (delId) {
+    const row = e.target.closest('.dd-row').querySelector('.dd-name').textContent;
+    if (!confirm(`Delete run ${row}?\nIts generated images (not used by other runs) will be removed from disk.`)) return;
+    try {
+      const res = await api(`/api/runs/${delId}`, { method: 'DELETE' });
+      alert(`Run deleted — ${res.files} files removed, ${res.mbFreed} MB freed`);
+      if (Number(delId) === currentRunId) { currentRunId = null; wfLoadedForRun = null; }
+      await loadRuns(currentRunId);
+    } catch (err) { alert(err.message); }
+    return;
+  }
+  const row = e.target.closest('.dd-row');
+  if (!row) return;
+  $('runList').hidden = true;
+  currentRunId = Number(row.dataset.id);
+  await loadRuns(currentRunId);
+};
 
 async function loadWorkflows(run) {
   const workflows = await api('/api/workflows');
@@ -189,6 +232,7 @@ async function refresh() {
 }
 
 function renderStats(run) {
+  $('runBtn').innerHTML = `${escapeHtml(runLabel(run))}<span class="caret">▾</span>`;
   const pending = run.total - (run.done||0) - (run.failed||0) - (run.running||0);
   $('stats').innerHTML =
     `<b>${run.done||0}</b> done · <b>${run.failed||0}</b> failed · <b>${pending}</b> pending` +
@@ -271,20 +315,6 @@ window.rate = async (id, rating, alreadySelected) => {
   refresh();
 };
 
-$('runSelect').onchange = (e) => { currentRunId = Number(e.target.value); refresh(); };
-
-$('deleteRunBtn').onclick = async () => {
-  if (currentRunId == null) return;
-  const label = $('runSelect').options[$('runSelect').selectedIndex]?.text || `#${currentRunId}`;
-  if (!confirm(`Delete run ${label}?\nIts generated images (not used by other runs) will be removed from disk.`)) return;
-  try {
-    const res = await api(`/api/runs/${currentRunId}`, { method: 'DELETE' });
-    alert(`Run deleted — ${res.files} files removed, ${res.mbFreed} MB freed`);
-    currentRunId = null;
-    wfLoadedForRun = null;
-    await loadRuns(null);
-  } catch (err) { alert(err.message); }
-};
 
 $('startBtn').onclick = async () => {
   try {
