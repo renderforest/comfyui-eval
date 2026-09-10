@@ -66,6 +66,7 @@
 <header>
   <h1>ComfyUI Eval</h1>
   <label>Run <select id="runSelect"></select></label>
+  <button class="iconbtn" id="deleteRunBtn" title="Delete this run and its images" style="color:var(--err)">🗑</button>
   <span class="stats" id="stats"></span>
 </header>
 <main>
@@ -271,6 +272,19 @@ window.rate = async (id, rating, alreadySelected) => {
 };
 
 $('runSelect').onchange = (e) => { currentRunId = Number(e.target.value); refresh(); };
+
+$('deleteRunBtn').onclick = async () => {
+  if (currentRunId == null) return;
+  const label = $('runSelect').options[$('runSelect').selectedIndex]?.text || `#${currentRunId}`;
+  if (!confirm(`Delete run ${label}?\nIts generated images (not used by other runs) will be removed from disk.`)) return;
+  try {
+    const res = await api(`/api/runs/${currentRunId}`, { method: 'DELETE' });
+    alert(`Run deleted — ${res.files} files removed, ${res.mbFreed} MB freed`);
+    currentRunId = null;
+    wfLoadedForRun = null;
+    await loadRuns(null);
+  } catch (err) { alert(err.message); }
+};
 
 $('startBtn').onclick = async () => {
   try {

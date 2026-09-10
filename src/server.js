@@ -6,8 +6,8 @@ const express = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { sampleCsv, rowKey } = require('./sample');
-const { runPending, isRunActive, requestStop } = require('./runner');
-const { PORT, OUTPUTS_DIR, PROD_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR, COMFY_URL } = require('./config');
+const { runPending, isRunActive, requestStop, urlCacheName } = require('./runner');
+const { PORT, OUTPUTS_DIR, PROD_DIR, REFS_DIR, CSV_DIR, ROOT, WORKFLOWS_DIR, COMFY_URL } = require('./config');
 
 const app = express();
 app.use(express.json());
@@ -209,6 +209,53 @@ app.post('/api/runs/:id/start', (req, res) => {
   // fire-and-forget; UI polls for progress
   runPending({ runId }).catch((err) => console.error(`Run ${runId} failed: ${err.message}`));
   res.json({ started: true, runId });
+});
+
+// delete a run and every file no other run still references
+app.delete('/api/runs/:id', (req, res) => {
+  const runId = Number(req.params.id);
+  if (isRunActive(runId)) return res.status(409).json({ error: 'Stop the run before deleting it' });
+  const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+  const instances = db.prepare('SELECT * FROM instances WHERE run_id = ?').all(runId);
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM instances WHERE run_id = ?').run(runId);
+    db.prepare('DELETE FROM runs WHERE id = ?').run(runId);
+  })();
+
+  let files = 0;
+  let bytes = 0;
+  const tryUnlink = (dir, name) => {
+    const p = path.join(dir, name);
+    try {
+      const size = fs.statSync(p).size;
+      fs.unlinkSync(p);
+      files++;
+      bytes += size;
+    } catch {
+      // already gone
+    }
+  };
+  const outputUsed = db.prepare('SELECT 1 FROM instances WHERE output_path = ? LIMIT 1');
+  const prodUsed = db.prepare('SELECT 1 FROM instances WHERE prod_image_path = ? LIMIT 1');
+  const refUsed = db.prepare('SELECT 1 FROM instances WHERE ref_1 = ? OR ref_2 = ? OR ref_3 = ? LIMIT 1');
+  for (const i of instances) {
+    if (i.output_path && !outputUsed.get(i.output_path)) tryUnlink(OUTPUTS_DIR, i.output_path);
+    if (i.prod_image_path && !prodUsed.get(i.prod_image_path)) tryUnlink(PROD_DIR, i.prod_image_path);
+    for (const url of [i.ref_1, i.ref_2, i.ref_3]) {
+      if (url && !refUsed.get(url, url, url)) tryUnlink(REFS_DIR, urlCacheName(url));
+    }
+  }
+  // uploaded CSV: remove when this was the last run sampled from it
+  if (
+    run.csv_path &&
+    run.csv_path.startsWith(CSV_DIR) &&
+    !db.prepare('SELECT 1 FROM runs WHERE csv_path = ? LIMIT 1').get(run.csv_path)
+  ) {
+    tryUnlink(path.dirname(run.csv_path), path.basename(run.csv_path));
+  }
+  res.json({ deleted: runId, files, mbFreed: Math.round((bytes / 1024 / 1024) * 10) / 10 });
 });
 
 app.post('/api/runs/:id/stop', async (req, res) => {
