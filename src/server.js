@@ -160,15 +160,15 @@ app.post('/api/workflows', uploadWorkflow.single('workflow'), (req, res) => {
       });
     }
     const warnings = [];
-    if (!usesPlaceholders) {
-      warnings.push('no placeholders — prompt/seed/refs will be auto-detected and injected at run time');
-    }
+    const info = usesPlaceholders
+      ? null
+      : 'Auto-inject mode: prompt, seed and reference images will be filled in automatically at run time.';
     const name =
       req.body.name || (req.file ? req.file.originalname.replace(/\.json$/i, '') : `workflow-${Date.now()}`);
     const { lastInsertRowid } = db
       .prepare('INSERT INTO workflows (name, kind, json) VALUES (?, ?, ?)')
       .run(name, kind, raw);
-    res.json({ id: Number(lastInsertRowid), name, kind, warnings });
+    res.json({ id: Number(lastInsertRowid), name, kind, warnings, info });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

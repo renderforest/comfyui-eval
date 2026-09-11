@@ -350,6 +350,7 @@ $('wfFileInput').onchange = async () => {
   try {
     const res = await api('/api/workflows', { method: 'POST', body: form });
     if (res.warnings && res.warnings.length) alert(`Uploaded with warnings: ${res.warnings.join('; ')}`);
+    else if (res.info) alert(`Uploaded ✓\n${res.info}`);
     wfLoadedForRun = null;
     await refresh();
     (res.kind === 'edit' ? $('wfEdit') : $('wfText')).value = res.id;
