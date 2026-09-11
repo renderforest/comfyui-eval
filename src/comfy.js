@@ -172,6 +172,74 @@ function instantiateWorkflow({ template, values }) {
   return walk(template);
 }
 
+// For workflows uploaded WITHOUT %%…%% placeholders (raw "Save (API Format)"
+// exports): find the injection points automatically.
+//  - every numeric seed/noise_seed input gets the seed
+//  - the text/prompt field of the node feeding a sampler's `positive` input
+//    gets the prompt (negative branches are left alone)
+//  - LoadImage-style nodes get REF_1..REF_3 in ascending node-id order
+function autoInjectValues({ workflow, values }) {
+  for (const node of Object.values(workflow)) {
+    for (const key of ['seed', 'noise_seed']) {
+      if (typeof node.inputs[key] === 'number') node.inputs[key] = values.SEED;
+    }
+    // Pixaroma-style nodes carry their value in a JSON state string
+    if (typeof node.inputs.SeedState === 'string') {
+      try {
+        const state = JSON.parse(node.inputs.SeedState);
+        if ('seed' in state) state.seed = values.SEED;
+        if ('mode' in state) state.mode = 'fixed';
+        state.runSeed = values.SEED;
+        node.inputs.SeedState = JSON.stringify(state);
+      } catch {
+        node.inputs.SeedState = JSON.stringify({ runSeed: values.SEED });
+      }
+    }
+  }
+
+  const promptText = `${values.PROMPT}${values.STYLE_SUFFIX || ''}`;
+  const positiveTargets = [];
+  const negativeTargets = new Set();
+  for (const node of Object.values(workflow)) {
+    if (Array.isArray(node.inputs.positive)) positiveTargets.push(String(node.inputs.positive[0]));
+    if (Array.isArray(node.inputs.negative)) negativeTargets.add(String(node.inputs.negative[0]));
+  }
+  const setPromptUpstream = (id, depth) => {
+    const node = workflow[id];
+    if (!node || depth > 4 || negativeTargets.has(id)) return false;
+    if (typeof node.inputs.PromptState === 'string') {
+      try {
+        const state = JSON.parse(node.inputs.PromptState);
+        state.text = promptText;
+        node.inputs.PromptState = JSON.stringify(state);
+      } catch {
+        node.inputs.PromptState = JSON.stringify({ text: promptText, order: 'mine', sep: ', ' });
+      }
+      return true;
+    }
+    for (const field of ['text', 'prompt']) {
+      if (typeof node.inputs[field] === 'string') {
+        node.inputs[field] = promptText;
+        return true;
+      }
+    }
+    for (const value of Object.values(node.inputs)) {
+      if (Array.isArray(value) && setPromptUpstream(String(value[0]), depth + 1)) return true;
+    }
+    return false;
+  };
+  for (const id of positiveTargets) setPromptUpstream(id, 0);
+
+  Object.entries(workflow)
+    .filter(([, n]) => /LoadImage/i.test(n.class_type) && typeof n.inputs.image === 'string')
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .forEach(([, n], index) => {
+      n.inputs.image = values[`REF_${index + 1}`] || '';
+    });
+
+  return workflow;
+}
+
 // Removes LoadImage-style nodes whose image resolved to an empty string
 // (a row with fewer refs than the workflow has slots), then cascades:
 // downstream references to removed nodes are dropped when the input is
@@ -203,4 +271,4 @@ function pruneEmptyRefNodes({ workflow, objectInfo }) {
   return Object.fromEntries(Object.entries(workflow).filter(([id]) => !removed.has(id)));
 }
 
-module.exports = { ComfyClient, instantiateWorkflow, pruneEmptyRefNodes };
+module.exports = { ComfyClient, instantiateWorkflow, autoInjectValues, pruneEmptyRefNodes };

@@ -25,7 +25,9 @@ Export your workflows from the ComfyUI GUI in **API format** (enable Dev mode �
    - `workflows/text2img.json` — used for text-only rows
    - `workflows/edit.json` — used for rows with reference images
 
-Insert placeholders where the runner should inject values:
+**No editing required:** a raw API export (no placeholders at all) works as-is — at run time the app auto-detects and injects values: every `seed`/`noise_seed` (including Pixaroma `SeedState`), the prompt node feeding a sampler's `positive` input (including Pixaroma `PromptState`; negative branches untouched), and LoadImage nodes get refs 1–3 in node-id order.
+
+Alternatively, insert placeholders for explicit control over where values go:
 
 - `%%PROMPT%%` — user prompt
 - `%%STYLE%%` — style column (empty string when null)

@@ -134,24 +134,35 @@ app.post('/api/workflows', uploadWorkflow.single('workflow'), (req, res) => {
         error: 'No ComfyUI nodes found — export the workflow in API format (Dev mode → "Save (API Format)")',
       });
     }
-    // reject obvious kind mix-ups instead of storing a workflow that can't run
-    const hasRef = raw.includes('%%REF_1%%');
-    if (kind === 'edit' && !hasRef) {
+    // Placeholder workflows are validated for kind mix-ups; raw API exports
+    // (no %%…%% at all) are accepted and auto-injected at run time.
+    const usesPlaceholders = raw.includes('%%');
+    const hasLoadImage = nodes.some((n) => /LoadImage/i.test(n.class_type));
+    if (usesPlaceholders) {
+      const hasRef = raw.includes('%%REF_1%%');
+      if (kind === 'edit' && !hasRef) {
+        return res.status(400).json({
+          error:
+            'This file has no %%REF_1%% placeholder — it looks like a text → image workflow. ' +
+            'Use the Upload button on the "Text → image" row instead.',
+        });
+      }
+      if (kind === 'text2img' && hasRef) {
+        return res.status(400).json({
+          error:
+            'This file contains %%REF_1%% — it looks like an image → image (edit) workflow. ' +
+            'Use the Upload button on the "Image → image" row instead.',
+        });
+      }
+    } else if (kind === 'edit' && !hasLoadImage) {
       return res.status(400).json({
-        error:
-          'This file has no %%REF_1%% placeholder — it looks like a text → image workflow. ' +
-          'Use the Upload button on the "Text → image" row instead.',
-      });
-    }
-    if (kind === 'text2img' && hasRef) {
-      return res.status(400).json({
-        error:
-          'This file contains %%REF_1%% — it looks like an image → image (edit) workflow. ' +
-          'Use the Upload button on the "Image → image" row instead.',
+        error: 'An image → image workflow needs at least one LoadImage node for the reference image.',
       });
     }
     const warnings = [];
-    if (!raw.includes('%%PROMPT%%')) warnings.push('no %%PROMPT%% placeholder found');
+    if (!usesPlaceholders) {
+      warnings.push('no placeholders — prompt/seed/refs will be auto-detected and injected at run time');
+    }
     const name =
       req.body.name || (req.file ? req.file.originalname.replace(/\.json$/i, '') : `workflow-${Date.now()}`);
     const { lastInsertRowid } = db
