@@ -153,7 +153,9 @@ const api = async (url, opts) => {
 const post = (url, body) =>
   api(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-const runLabel = (r) => `#${r.id} ${r.name} (${r.done||0}/${r.total})`;
+const truncate = (str) => str.length > 20 ? str.slice(0, 20) + "..." : str;
+
+const runLabel = (r) => `#${r.id} ${truncate(r.name)} (${r.done||0}/${r.total})`;
 
 async function loadRuns(selectRunId) {
   const runs = await api('/api/runs');
@@ -346,7 +348,8 @@ $('wfFileInput').onchange = async () => {
   const suggested = file.name.replace(/\.json$/i, '');
   const name = prompt(`Name for this ${uploadKind === 'edit' ? 'image → image' : 'text → image'} workflow:`, suggested);
   if (name === null) { $('wfFileInput').value = ''; return; }
-  form.append('name', name || suggested);
+  const strippedName = truncate(name || suggested);
+  form.append('name', strippedName);
   try {
     const res = await api('/api/workflows', { method: 'POST', body: form });
     if (res.warnings && res.warnings.length) alert(`Uploaded with warnings: ${res.warnings.join('; ')}`);
