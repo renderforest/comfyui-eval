@@ -260,7 +260,8 @@ function imgOrPlaceholder(src, label, note, fallback) {
 }
 
 function renderGrid(instances) {
-  promptById = Object.fromEntries(instances.map((i) => [i.id, i.prompt]));
+  // copy the prompt exactly as sent to ComfyUI (style prompt appended like production)
+  promptById = Object.fromEntries(instances.map((i) => [i.id, i.style_prompt ? `${i.prompt}. ${i.style_prompt}` : i.prompt]));
   $('grid').innerHTML = instances.map((i) => {
     const refs = [i.ref_1, i.ref_2, i.ref_3].filter(Boolean);
     return `<div class="card">
@@ -278,7 +279,7 @@ function renderGrid(instances) {
           'Production', undefined, i.prod_image_path ? i.prod_image_url : undefined)}
         ${imgOrPlaceholder(i.output_path ? `/outputs/${encodeURIComponent(i.output_path)}` : null, 'Local' + (i.reused ? ' (reused)' : ''), i.status === 'failed' ? 'failed' : undefined)}
       </div>
-      <p class="prompt">${escapeHtml(i.prompt)} <button class="copy" onclick="copyPrompt(this, ${i.id})" title="Copy prompt">⧉</button></p>
+      <p class="prompt">${escapeHtml(i.prompt)}${i.style_prompt ? `<br><b>Style prompt:</b> ${escapeHtml(i.style_prompt)}` : ''} <button class="copy" onclick="copyPrompt(this, ${i.id})" title="Copy prompt">⧉</button></p>
       ${i.error ? `<div class="error">${escapeHtml(i.error)}</div>` : ''}
       ${refs.length ? `<div class="refs">${refs.map((r) => `<img loading="lazy" src="${escapeHtml(r)}" onclick="zoom(this.src)">`).join('')}</div>` : ''}
       <div class="rate" data-id="${i.id}">

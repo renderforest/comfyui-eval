@@ -31,6 +31,23 @@ function shuffle(arr, rand) {
   return out;
 }
 
+// Looker export keeps every ref in a JSON array column (`refMediaJson`, literal
+// "null" when empty) plus the first one in `refImage`; usage exports have
+// first/second/third_ref_image. Extra refs beyond the 3 workflow slots are dropped.
+function refsOf(row) {
+  const json = nullish(row.refMediaJson);
+  if (json) {
+    try {
+      const urls = JSON.parse(json);
+      if (Array.isArray(urls)) return urls.map(nullish).filter(Boolean).slice(0, 3);
+    } catch {
+      // malformed JSON — fall through to the single-ref column
+    }
+  }
+  if (row.refImage !== undefined) return [nullish(row.refImage)].filter(Boolean);
+  return [row.first_ref_image, row.second_ref_image, row.third_ref_image].map(nullish).filter(Boolean);
+}
+
 function parseCsv(csvPath) {
   return new Promise((resolve, reject) => {
     const textRows = [];
@@ -39,18 +56,21 @@ function parseCsv(csvPath) {
       .pipe(parse({ columns: true, bom: true, relaxColumnCount: true, skipEmptyLines: true }))
       .on('data', (row) => {
         const prompt = nullish(row.prompt);
-        const prodImageUrl = nullish(row.filePath);
+        // `filePath_` / `createdAt` are the Looker export's names for the same fields
+        const prodImageUrl = nullish(row.filePath) || nullish(row.filePath_);
         if (!prompt || !prodImageUrl || !/^https?:\/\//.test(prodImageUrl)) return;
+        const [ref1 = null, ref2 = null, ref3 = null] = refsOf(row);
         const instance = {
           prompt,
           style: nullish(row.style),
+          stylePrompt: nullish(row.stylePrompt),
           plan: nullish(row.plan),
           model: nullish(row.model),
-          fileCreatedAt: nullish(row['fileCreatedAt (Date Hour)']),
+          fileCreatedAt: nullish(row['fileCreatedAt (Date Hour)']) || nullish(row.createdAt),
           prodImageUrl,
-          ref1: nullish(row.first_ref_image),
-          ref2: nullish(row.second_ref_image),
-          ref3: nullish(row.third_ref_image),
+          ref1,
+          ref2,
+          ref3,
         };
         (instance.ref1 ? refRows : textRows).push(instance);
       })
@@ -90,10 +110,10 @@ async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null,
   );
   const insertInstance = db.prepare(`
     INSERT INTO instances (
-      run_id, kind, prompt, style, plan, model, file_created_at,
+      run_id, kind, prompt, style, style_prompt, plan, model, file_created_at,
       prod_image_url, ref_1, ref_2, ref_3
     ) VALUES (
-      @runId, @kind, @prompt, @style, @plan, @model, @fileCreatedAt,
+      @runId, @kind, @prompt, @style, @stylePrompt, @plan, @model, @fileCreatedAt,
       @prodImageUrl, @ref1, @ref2, @ref3
     )
   `);

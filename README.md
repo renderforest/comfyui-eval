@@ -55,7 +55,9 @@ npm run serve          # http://localhost:3000
 
 Everything is also doable from the admin site: upload a CSV (creates a new run), press **Start generation**, watch progress live, zoom images, and rate each pair (prod better / local better / tie) — tallies show in the header.
 
-Expected CSV columns: `fileCreatedAt (Date Hour), plan, model, style, prompt, filePath, first_ref_image, second_ref_image, third_ref_image` (`null` strings treated as empty). `filePath` is the production result image URL.
+Expected CSV columns: `fileCreatedAt (Date Hour), plan, model, style, prompt, filePath, first_ref_image, second_ref_image, third_ref_image` (`null` strings treated as empty). `filePath` is the production result image URL. Optional `stylePrompt` column: when present, it is appended to the prompt the way production does (`<prompt>. <stylePrompt>`) before it reaches the workflow.
+
+The Looker "AI Images (Video) List" export is accepted as-is: `filePath_` is the production image, `createdAt` the date, and refs come from `refMediaJson` (JSON array; first 3 used), falling back to `refImage`. A row with at least one ref is image → image, otherwise text → image.
 
 State lives in `data/eval.sqlite`; generated images in `data/outputs/`. Sampling is seeded, so the same CSV + seed always picks the same 100 rows.
 

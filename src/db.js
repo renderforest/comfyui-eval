@@ -59,6 +59,7 @@ for (const [table, column] of [
   ['instances', 'gen_key TEXT'],
   ['instances', 'prod_image_path TEXT'],
   ['instances', 'reused INTEGER NOT NULL DEFAULT 0'],
+  ['instances', 'style_prompt TEXT'],
 ]) {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
