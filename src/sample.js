@@ -44,6 +44,7 @@ function parseCsv(csvPath) {
         const instance = {
           prompt,
           style: nullish(row.style),
+          stylePrompt: nullish(row.stylePrompt),
           plan: nullish(row.plan),
           model: nullish(row.model),
           fileCreatedAt: nullish(row['fileCreatedAt (Date Hour)']),
@@ -90,10 +91,10 @@ async function sampleCsv({ csvPath, name, count = 100, seed, excludeKeys = null,
   );
   const insertInstance = db.prepare(`
     INSERT INTO instances (
-      run_id, kind, prompt, style, plan, model, file_created_at,
+      run_id, kind, prompt, style, style_prompt, plan, model, file_created_at,
       prod_image_url, ref_1, ref_2, ref_3
     ) VALUES (
-      @runId, @kind, @prompt, @style, @plan, @model, @fileCreatedAt,
+      @runId, @kind, @prompt, @style, @stylePrompt, @plan, @model, @fileCreatedAt,
       @prodImageUrl, @ref1, @ref2, @ref3
     )
   `);

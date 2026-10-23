@@ -14,9 +14,10 @@ Internal QA tool: replays real production AI-image prompts (sampled from a usage
 
 - **Workflows are user-provided ComfyUI API-format JSON** stored in the `workflows` DB table (uploaded via UI) or as `workflows/text2img.json` / `workflows/edit.json` on disk (fallback). GUI-format exports (`{nodes, links}`) do NOT work — only API format (`{"<id>": {class_type, inputs}}`).
 - **Placeholders** substituted per instance: `%%PROMPT%%`, `%%STYLE%%`, `%%STYLE_SUFFIX%%` (`", <style>"` or empty), `%%SEED%%` (a string that is exactly `%%SEED%%` becomes a number), `%%REF_1%%`–`%%REF_3%%` (filenames after upload to ComfyUI's input dir). Substitution is object-level (`instantiateWorkflow`), so JSON escaping is automatic.
+- **Style prompt**: an optional CSV `stylePrompt` column (stored as `instances.style_prompt`) is appended to the prompt as `<prompt>. <stylePrompt>` — production's composition — so `%%PROMPT%%` and auto-injection both receive the full prompt. No separate placeholder.
 - **Two workflow kinds**: `text2img` (rows without ref images) and `edit` (rows with refs). Uploads are validated: an edit workflow must contain `%%REF_1%%`, a text2img must not.
 - **Empty-ref pruning**: rows with fewer refs than the workflow has slots work because `pruneEmptyRefNodes` removes LoadImage nodes whose ref is empty and cascades using `/object_info` required/optional specs.
-- **Reuse cache**: before generating, the runner looks up `gen_key` = sha1(kind|prompt|style|refs|workflow-content-hash); an existing done image is reused (`reused=1`) instead of regenerated. Prod images cached in `data/prod/`, refs in `data/refs/` (keyed by URL sha1), outputs in `data/outputs/`.
+- **Reuse cache**: before generating, the runner looks up `gen_key` = sha1(kind|prompt+style prompt|style|refs|workflow-content-hash); an existing done image is reused (`reused=1`) instead of regenerated. Prod images cached in `data/prod/`, refs in `data/refs/` (keyed by URL sha1), outputs in `data/outputs/`.
 - **Bulk resampling**: `POST /api/runs/:id/resample` samples a new bulk from the same CSV, by default excluding every prompt+refs row ever sampled (any run). New bulks get a random seed (stored, reproducible).
 
 ## Deployments (two independent copies — separate DBs, results don't sync)
