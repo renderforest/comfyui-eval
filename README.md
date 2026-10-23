@@ -15,6 +15,7 @@ Configuration is via environment variables (or a `.env` file), all optional:
 | `COMFY_URL` | `http://127.0.0.1:8188` | ComfyUI base URL (same machine) |
 | `PORT` | `3000` | Admin site port |
 | `JOB_TIMEOUT_MS` | `600000` | Per-generation timeout |
+| `MEGAPIXELS` | `1.5` | Forced onto resolution nodes' `megapixels` input |
 
 ### Workflows (required before generating)
 
@@ -58,6 +59,10 @@ Everything is also doable from the admin site: upload a CSV (creates a new run),
 Expected CSV columns: `fileCreatedAt (Date Hour), plan, model, style, prompt, filePath, first_ref_image, second_ref_image, third_ref_image` (`null` strings treated as empty). `filePath` is the production result image URL. Optional `stylePrompt` column: when present, it is appended to the prompt the way production does (`<prompt>. <stylePrompt>`) before it reaches the workflow.
 
 The Looker "AI Images (Video) List" export is accepted as-is: `filePath_` is the production image, `createdAt` the date, and refs come from `refMediaJson` (JSON array; first 3 used), falling back to `refImage`. A row with at least one ref is image → image, otherwise text → image.
+
+### Output shape
+
+Each row's production image is measured and classified as landscape (`16:9`), portrait (`9:16`) or square (`1:1`). Any workflow node with an `aspect_ratio` combo input (e.g. `ResolutionSelector`) is set to the matching option (labels are read from ComfyUI's `/object_info`, so `9:16 (Slim Vertical)` matches `9:16`), and its `megapixels` input to `MEGAPIXELS` (env, default `1.5`). If a node has no option for the needed ratio the instance fails with the available options listed.
 
 State lives in `data/eval.sqlite`; generated images in `data/outputs/`. Sampling is seeded, so the same CSV + seed always picks the same 100 rows.
 

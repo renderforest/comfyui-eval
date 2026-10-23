@@ -271,4 +271,31 @@ function pruneEmptyRefNodes({ workflow, objectInfo }) {
   return Object.fromEntries(Object.entries(workflow).filter(([id]) => !removed.has(id)));
 }
 
-module.exports = { ComfyClient, instantiateWorkflow, autoInjectValues, pruneEmptyRefNodes };
+// Sets the output resolution on resolution nodes (e.g. ResolutionSelector):
+// the `aspect_ratio` combo to the option matching `aspectRatio`
+// ('16:9' | '9:16' | '1:1') and a numeric `megapixels` input to `megapixels`.
+// Option labels vary per node ("16:9 (Widescreen)"), so the match is on the
+// leading ratio token of the choices /object_info lists. Throws instead of
+// silently keeping the workflow's default shape.
+function setResolution({ workflow, aspectRatio, megapixels, objectInfo }) {
+  for (const [id, node] of Object.entries(workflow)) {
+    if (typeof node.inputs.aspect_ratio !== 'string') continue;
+    if (megapixels && typeof node.inputs.megapixels === 'number') node.inputs.megapixels = megapixels;
+    if (!aspectRatio) continue;
+    const spec = (objectInfo[node.class_type] || {}).input || {};
+    const def = (spec.required || {}).aspect_ratio || (spec.optional || {}).aspect_ratio || [];
+    // combo specs are [[...options]] or, in newer ComfyUI, ['COMBO', { options }]
+    const options = Array.isArray(def[0]) ? def[0] : (def[1] && def[1].options) || [];
+    const match = options.find((o) => String(o).trim().split(/\s/)[0] === aspectRatio);
+    if (!match) {
+      throw new Error(
+        `Node ${id} (${node.class_type}) has no aspect_ratio option for ${aspectRatio}` +
+          (options.length ? ` (options: ${options.join(', ')})` : '')
+      );
+    }
+    node.inputs.aspect_ratio = match;
+  }
+  return workflow;
+}
+
+module.exports = { ComfyClient, instantiateWorkflow, autoInjectValues, pruneEmptyRefNodes, setResolution };

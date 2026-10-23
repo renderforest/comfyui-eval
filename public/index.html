@@ -269,6 +269,7 @@ function renderGrid(instances) {
         <span class="badge ${i.status}">${i.status}</span>
         <span class="badge">${i.kind === 'ref' ? 'image → image' : 'text → image'}</span>
         ${i.style ? `<span class="badge">style: ${escapeHtml(i.style)}</span>` : ''}
+        ${i.aspect_ratio ? `<span class="badge">${escapeHtml(i.aspect_ratio)}</span>` : ''}
         ${i.plan ? `<span class="badge">${escapeHtml(i.plan)}</span>` : ''}
         ${i.duration_ms ? `<span class="badge">${(i.duration_ms/1000).toFixed(1)}s</span>` : ''}
         ${i.seed != null ? `<span class="badge">seed ${i.seed}</span>` : ''}
