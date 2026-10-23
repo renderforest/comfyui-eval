@@ -11,6 +11,8 @@ module.exports = {
   COMFY_URL: process.env.COMFY_URL || 'http://127.0.0.1:8188',
   PORT: Number(process.env.PORT) || 3000,
   JOB_TIMEOUT_MS: Number(process.env.JOB_TIMEOUT_MS) || 600000,
+  // forced onto resolution nodes (ResolutionSelector `megapixels`) for every generation
+  MEGAPIXELS: Number(process.env.MEGAPIXELS) || 1.5,
   DATA_DIR: path.join(ROOT, 'data'),
   DB_PATH: path.join(ROOT, 'data', 'eval.sqlite'),
   OUTPUTS_DIR: path.join(ROOT, 'data', 'outputs'),

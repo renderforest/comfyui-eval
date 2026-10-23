@@ -60,6 +60,7 @@ for (const [table, column] of [
   ['instances', 'prod_image_path TEXT'],
   ['instances', 'reused INTEGER NOT NULL DEFAULT 0'],
   ['instances', 'style_prompt TEXT'],
+  ['instances', 'aspect_ratio TEXT'],
 ]) {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
